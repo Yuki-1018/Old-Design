@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Space Shooter Game</title>
+  <style>
+    body { margin: 0; background: black; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<script src="https://pixijs.download/release/pixi.min.js"></script>
+<script>
+const WIDTH = 800, HEIGHT = 600;
+const app = new PIXI.Application({ width: WIDTH, height: HEIGHT, backgroundColor: 0x000000 });
+document.body.appendChild(app.view);
+
+// --- アセット読み込み ---
+const loader = PIXI.Loader.shared;
+loader.add('player', 'https://opengameart.org/sites/default/files/player2.png');
+loader.add('enemy', 'https://opengameart.org/sites/default/files/enemy_4.png');
+loader.load(setup);
+
+// --- 変数宣言 ---
+let player, bullets = [], enemies = [], score = 0;
+let leftPressed = false, rightPressed = false, spacePressed = false;
+let shootCooldown = 0, frameCount = 0;
+let scoreText, startText, gameOverText;
+let gameStarted = false;
+
+// --- キー入力 ---
+document.addEventListener('keydown', e => {
+    if (e.code === 'ArrowLeft') leftPressed = true;
+    if (e.code === 'ArrowRight') rightPressed = true;
+    if (e.code === 'Space') spacePressed = true;
+});
+document.addEventListener('keyup', e => {
+    if (e.code === 'ArrowLeft') leftPressed = false;
+    if (e.code === 'ArrowRight') rightPressed = false;
+    if (e.code === 'Space') spacePressed = false;
+    if (e.code === 'Space' && !gameStarted) startGame();
+});
+
+// --- 初期セットアップ ---
+function setup() {
+    // タイトル表示
+    startText = new PIXI.Text('Press SPACE to Start', { fontSize: 36, fill: 0xFFFFFF });
+    startText.anchor.set(0.5);
+    startText.x = WIDTH / 2;
+    startText.y = HEIGHT / 2;
+    app.stage.addChild(startText);
+}
+
+// --- ゲーム開始処理 ---
+function startGame() {
+    gameStarted = true;
+    app.stage.removeChild(startText);
+
+    // プレイヤー生成
+    player = new PIXI.Sprite(loader.resources['player'].texture);
+    player.anchor.set(0.5);
+    player.x = WIDTH / 2;
+    player.y = HEIGHT - 50;
+    app.stage.addChild(player);
+
+    // スコア表示
+    scoreText = new PIXI.Text('Score: 0', { fontSize: 24, fill: 0xFFFFFF });
+    scoreText.x = 10;
+    scoreText.y = 10;
+    app.stage.addChild(scoreText);
+
+    // メインループ開始
+    app.ticker.add(gameLoop);
+}
+
+// --- 弾発射 ---
+function shootBullet() {
+    const bullet = new PIXI.Graphics();
+    bullet.beginFill(0xFFFF00);
+    bullet.drawRect(-2, -10, 4, 10);
+    bullet.endFill();
+    bullet.x = player.x;
+    bullet.y = player.y - player.height / 2;
+    bullet.vy = -5;
+    app.stage.addChild(bullet);
+    bullets.push(bullet);
+}
+
+// --- 敵生成 ---
+function spawnEnemy() {
+    const enemy = new PIXI.Sprite(loader.resources['enemy'].texture);
+    enemy.anchor.set(0.5);
+    enemy.x = Math.random() * (WIDTH - 40) + 20;
+    enemy.y = -20;
+    enemy.vy = 2;
+    app.stage.addChild(enemy);
+    enemies.push(enemy);
+}
+
+// --- ゲームループ ---
+function gameLoop() {
+    frameCount++;
+
+    // プレイヤー移動
+    if (leftPressed)  player.x -= 5;
+    if (rightPressed) player.x += 5;
+    if (player.x < player.width/2) player.x = player.width/2;
+    if (player.x > WIDTH - player.width/2) player.x = WIDTH - player.width/2;
+
+    // 弾発射
+    if (spacePressed && shootCooldown <= 0) {
+        shootBullet();
+        shootCooldown = 15;
+    }
+    if (shootCooldown > 0) shootCooldown--;
+
+    // 弾移動
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.y += b.vy;
+        if (b.y < 0) {
+            app.stage.removeChild(b);
+            bullets.splice(i, 1);
+        }
+    }
+
+    // 敵出現と移動
+    if (frameCount % 60 === 0) spawnEnemy();
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.y += e.vy;
+        if (e.y > HEIGHT + e.height) {
+            gameOver();
+        }
+    }
+
+    // 当たり判定
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        for (let j = bullets.length - 1; j >= 0; j--) {
+            const e = enemies[i];
+            const b = bullets[j];
+            const dist = Math.hypot(b.x - e.x, b.y - e.y);
+            if (dist < 20) {
+                app.stage.removeChild(e);
+                enemies.splice(i, 1);
+                app.stage.removeChild(b);
+                bullets.splice(j, 1);
+                score++;
+                scoreText.text = 'Score: ' + score;
+                break;
+            }
+        }
+    }
+}
+
+// --- ゲームオーバー処理 ---
+function gameOver() {
+    app.ticker.stop();
+    gameOverText = new PIXI.Text('GAME OVER', { fontSize: 48, fill: 0xFF0000 });
+    gameOverText.anchor.set(0.5);
+    gameOverText.x = WIDTH / 2;
+    gameOverText.y = HEIGHT / 2;
+    app.stage.addChild(gameOverText);
+}
+</script>
+</body>
+</html>
