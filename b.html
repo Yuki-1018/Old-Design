@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>クラシック・シューティングゲーム</title>
+    <style>
+        /* Google Fontsからアーケード風のフォントをインポート */
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            background-color: #000;
+            color: #fff;
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            border: 3px solid #0f0;
+            box-shadow: 0 0 20px #0f0;
+        }
+
+        canvas {
+            display: block;
+            background-color: #000;
+            cursor: none; /* ゲーム中はカーソルを非表示に */
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            text-align: center;
+            z-index: 10;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #start-screen h1 {
+            font-size: 2.5rem;
+            color: #0f0;
+            text-shadow: 0 0 10px #0f0;
+            animation: blink 1.5s infinite;
+        }
+
+        #start-screen p, #game-over-screen p {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        button {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1.2rem;
+            padding: 15px 30px;
+            margin-top: 30px;
+            background-color: transparent;
+            color: #fff;
+            border: 2px solid #fff;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #0f0;
+            color: #000;
+            box-shadow: 0 0 15px #0f0;
+        }
+
+        #score-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 1.2rem;
+            z-index: 5;
+        }
+
+        #game-over-screen {
+            background-color: rgba(0, 0, 0, 0.7);
+        }
+        #game-over-screen h2 {
+            font-size: 2rem;
+            color: #f00;
+            text-shadow: 0 0 10px #f00;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="score-container">SCORE: <span id="score-el">0</span></div>
+        
+        <div id="ui-layer" class="">
+            <div id="start-screen">
+                <h1>SPACE SHOOTER</h1>
+                <p>WASD or 矢印キーで移動<br>スペースキーでショット</p>
+                <button id="start-btn">START GAME</button>
+            </div>
+        </div>
+
+        <div id="ui-layer" class="hidden">
+            <div id="game-over-screen">
+                <h2>GAME OVER</h2>
+                <p>SCORE: <span id="final-score-el">0</span></p>
+                <button id="restart-btn">RESTART</button>
+            </div>
+        </div>
+        
+        <canvas id="game-canvas"></canvas>
+    </div>
+
+    <script>
+    window.addEventListener('load', () => {
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 600;
+        canvas.height = 800;
+
+        // --- UI要素 ---
+        const scoreEl = document.getElementById('score-el');
+        const finalScoreEl = document.getElementById('final-score-el');
+        const startScreen = document.getElementById('start-screen').parentElement;
+        const gameOverScreen = document.getElementById('game-over-screen').parentElement;
+        const startBtn = document.getElementById('start-btn');
+        const restartBtn = document.getElementById('restart-btn');
+
+        // --- アセット (Data URL) ---
+        // (前回と同じ)
+        const ASSETS = {
+            player: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAKxJREFUSEvtlMENgDAMAy+bNqkTdJI6QbswgkVBioADOA/wJ74I8E0IOI7j+M5ECPMkNU37pGStpNslbS0t3X4s6VpJKwslLd0GpF0k/yCgP+rS0t2CgP6o9kBCS7cJAfoj1SECgR0k7WlpaQeB7SRtaQMCO0na0gYEdpLUpAUEdpLUpAUEdpLUqAUE9pLUpAUE9pK0oQUE9hL8AcrrV8B2S+3vjR/gA0Yk4MIVxH80AAAAAElFTkSuQmCC',
+            enemy1: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAAXNSR0IArs4c6QAAAHBJREFUSEtjZKAxYKSx+Qz0NDEwMDL8Z2BgYEhA+v/nZ2BgYEQDILUoBvL/nzExMDEyAl+//v1/SA8kkwI0gWgA0gLpBqQDmQ8knsz/9+/f/yHZIM0gmhM2I2uB5AYkdyC5A8mNQPZnYGBgZAAAT0g1yXUjLboAAAAASUVORK5CYII=',
+            enemy2: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAExJREFUOE9jZKAQMFKon4F4IJM0DAwMyP9nZgGyLpAYyMVAfBTMf4mUz4D4PxD/x2Tz/w/E/1H8H4n/Y2b/A/EfFD+GagEAC2YvNaPZfCUAAAAASUVORK5CYII=',
+            laser: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAQCAYAAAAXtA4bAAAAAXNSR0IArs4c6QAAADhJREFUKFNjZCASMDIw/Gf+///DAAAMAwMDIysDwwwMDAxLGBgY+DAwMDAGY2RgYPgBYjIimwMADuoTz9dKJuQAAAAASUVORK5CYII=',
+            sound: {
+                shoot: 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA',
+                explode: 'data:audio/wav;base64,UklGRlIAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhSAAAAEAAAAB/yO7S7efz6/Lz7fDv6/Pr8vHt6+7t6+fs6ejm5eXk4+Ph4ODg39/f3t7e29vb2tra2dnZ1dXV1dPT09LS0tHR0dDQ0M/Pz83Nzc3Nzc3Nzc3Nzc3Nzc3NzQ=='
+            }
+        };
+
+        // --- 画像オブジェクトの作成 ---
+        const playerImg = new Image(); playerImg.src = ASSETS.player;
+        const enemy1Img = new Image(); enemy1Img.src = ASSETS.enemy1;
+        const enemy2Img = new Image(); enemy2Img.src = ASSETS.enemy2;
+        const laserImg = new Image(); laserImg.src = ASSETS.laser;
+
+        // --- グローバル変数 ---
+        let player, projectiles, enemies, particles, stars;
+        let score, frames, gameStatus;
+        const keys = {
+            w: { pressed: false }, a: { pressed: false }, s: { pressed: false }, d: { pressed: false },
+            arrowUp: { pressed: false }, arrowLeft: { pressed: false }, arrowDown: { pressed: false }, arrowRight: { pressed: false },
+            space: { pressed: false }
+        };
+        let lastShootTime = 0;
+        const shootInterval = 200; // 射撃間隔(ms)
+
+        // --- ゲームの初期化/リセット ---
+        function init() {
+            player = new Player();
+            projectiles = [];
+            enemies = [];
+            particles = [];
+            stars = [];
+            score = 0;
+            frames = 0;
+            gameStatus = 'running';
+            
+            for (let i = 0; i < 100; i++) {
+                stars.push(new Star(
+                    Math.random() * canvas.width, Math.random() * canvas.height,
+                    Math.random() * 2, `hsl(${Math.random() * 360}, 50%, 80%)`
+                ));
+            }
+
+            scoreEl.innerText = score;
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+        }
+
+        // --- クラス定義 ---
+        class Player {
+            constructor() {
+                this.width = 34;
+                this.height = 34;
+                this.position = { x: canvas.width / 2 - this.width / 2, y: canvas.height - this.height - 40 };
+                this.velocity = { x: 0, y: 0 };
+                this.speed = 5;
+                this.image = playerImg;
+            }
+
+            draw() {
+                ctx.drawImage(this.image, this.position.x, this.position.y, this.width, this.height);
+            }
+
+            update() {
+                this.position.x += this.velocity.x;
+                this.position.y += this.velocity.y;
+
+                // 画面外に出ないように制限
+                if (this.position.x < 0) this.position.x = 0;
+                if (this.position.x > canvas.width - this.width) this.position.x = canvas.width - this.width;
+                if (this.position.y < 0) this.position.y = 0;
+                if (this.position.y > canvas.height - this.height) this.position.y = canvas.height - this.height;
+
+                this.draw();
+            }
+
+            shoot() {
+                projectiles.push(new Projectile(
+                    this.position.x + this.width / 2 - 2,
+                    this.position.y,
+                    { y: -10 }
+                ));
+                playSound('shoot');
+            }
+        }
+
+        class Projectile { // 変更なし
+            constructor(x, y, velocity) {
+                this.position = { x, y };
+                this.velocity = velocity;
+                this.width = 4;
+                this.height = 16;
+                this.image = laserImg;
+            }
+            draw() { ctx.drawImage(this.image, this.position.x, this.position.y, this.width, this.height); }
+            update() { this.position.y += this.velocity.y; this.draw(); }
+        }
+
+        class Enemy {
+            constructor(x, y, movementPattern) {
+                this.movementPattern = movementPattern;
+                this.initialPos = { x, y };
+                this.age = 0; // 生成からのフレーム数
+
+                switch(movementPattern) {
+                    case 'zigzag':
+                        this.width = 24; this.height = 24; this.image = enemy2Img;
+                        this.velocity = { x: Math.random() > 0.5 ? 3 : -3, y: 1.5 };
+                        this.points = 250;
+                        break;
+                    case 'sine':
+                        this.width = 34; this.height = 34; this.image = enemy1Img;
+                        this.velocity = { x: 0, y: 2 };
+                        this.points = 150;
+                        break;
+                    case 'straight':
+                    default:
+                        this.width = 34; this.height = 34; this.image = enemy1Img;
+                        this.velocity = { x: 0, y: 2.5 };
+                        this.points = 100;
+                        break;
+                }
+                 this.position = { x, y };
+            }
+
+            draw() {
+                ctx.drawImage(this.image, this.position.x, this.position.y, this.width, this.height);
+            }
+
+            update() {
+                this.age++;
+                this.position.y += this.velocity.y;
+
+                switch(this.movementPattern) {
+                    case 'zigzag':
+                        this.position.x += this.velocity.x;
+                        if (this.position.x <= 0 || this.position.x + this.width >= canvas.width) {
+                            this.velocity.x *= -1;
+                        }
+                        break;
+                    case 'sine':
+                        this.position.x = this.initialPos.x + Math.sin(this.age * 0.05) * 80;
+                        break;
+                    case 'straight':
+                        // Y軸移動のみ
+                        break;
+                }
+                this.draw();
+            }
+        }
+
+        class Particle { // 変更なし
+            constructor(x, y, radius, color, velocity) {
+                this.position = { x, y }; this.velocity = velocity;
+                this.radius = radius; this.color = color;
+                this.opacity = 1; this.friction = 0.98;
+            }
+            draw() {
+                ctx.save(); ctx.globalAlpha = this.opacity; ctx.beginPath();
+                ctx.arc(this.position.x, this.position.y, this.radius, 0, Math.PI * 2, false);
+                ctx.fillStyle = this.color; ctx.fill(); ctx.restore();
+            }
+            update() {
+                this.velocity.x *= this.friction; this.velocity.y *= this.friction;
+                this.position.x += this.velocity.x; this.position.y += this.velocity.y;
+                this.opacity -= 0.02; this.draw();
+            }
+        }
+        
+        class Star { // 変更なし
+            constructor(x, y, radius, color) {
+                this.position = {x, y}; this.radius = radius; this.color = color;
+                this.velocity = {y: radius * 0.5};
+            }
+            draw() {
+                ctx.beginPath(); ctx.arc(this.position.x, this.position.y, this.radius, 0, Math.PI * 2, false);
+                ctx.fillStyle = this.color; ctx.fill();
+            }
+            update() {
+                this.position.y += this.velocity.y;
+                if (this.position.y - this.radius > canvas.height) {
+                    this.position.x = Math.random() * canvas.width; this.position.y = -this.radius;
+                }
+                this.draw();
+            }
+        }
+
+        // --- 補助関数 ---
+        function createExplosion(x, y, color, count = 20) {
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(
+                    x, y, Math.random() * 3 + 1, color,
+                    { x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 8 }
+                ));
+            }
+            playSound('explode');
+        }
+        
+        function playSound(type) {
+            const audio = new Audio(ASSETS.sound[type]);
+            audio.volume = type === 'shoot' ? 0.2 : 0.4;
+            audio.play();
+        }
+
+        function spawnEnemies() {
+            // スコアに応じてスポーン間隔を短くする
+            const baseInterval = Math.max(30, 100 - score / 300);
+            
+            // 単体で出現する敵
+            if (frames % Math.floor(baseInterval) === 0) {
+                const x = Math.random() * (canvas.width - 40);
+                enemies.push(new Enemy(x, -40, 'straight'));
+            }
+
+            // 蛇行する敵
+            if (frames % Math.floor(baseInterval * 1.8) === 0) {
+                const x = Math.random() * (canvas.width - 200) + 100;
+                enemies.push(new Enemy(x, -40, 'sine'));
+            }
+
+            // ジグザグする敵
+            if (frames % Math.floor(baseInterval * 2.5) === 0) {
+                const x = Math.random() * (canvas.width - 40);
+                enemies.push(new Enemy(x, -40, 'zigzag'));
+            }
+
+            // V字編隊
+            if (frames > 300 && frames % 400 === 0) {
+                const centerX = canvas.width / 2;
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => {
+                        enemies.push(new Enemy(centerX - 40, -80 - i*50, 'straight'));
+                        enemies.push(new Enemy(centerX + 40, -80 - i*50, 'straight'));
+                    }, i * 150);
+                }
+            }
+        }
+
+        function gameOver() {
+            gameStatus = 'gameOver';
+            setTimeout(() => {
+                finalScoreEl.innerText = score;
+                gameOverScreen.classList.remove('hidden');
+            }, 1000);
+        }
+
+        // --- メインゲームループ ---
+        function animate(timestamp) {
+            if(gameStatus !== 'running') return;
+            
+            const animationId = requestAnimationFrame(animate);
+
+            // 背景描画（残像効果）
+            ctx.fillStyle = 'rgba(0, 0, 10, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            stars.forEach(star => star.update());
+
+            // プレイヤーの速度を決定
+            player.velocity.x = 0;
+            player.velocity.y = 0;
+            if (keys.a.pressed || keys.arrowLeft.pressed) player.velocity.x = -player.speed;
+            if (keys.d.pressed || keys.arrowRight.pressed) player.velocity.x = player.speed;
+            if (keys.w.pressed || keys.arrowUp.pressed) player.velocity.y = -player.speed;
+            if (keys.s.pressed || keys.arrowDown.pressed) player.velocity.y = player.speed;
+            player.update();
+            
+            // 射撃処理
+            if (keys.space.pressed && timestamp - lastShootTime > shootInterval) {
+                lastShootTime = timestamp;
+                player.shoot();
+            }
+
+            particles.forEach((p, i) => p.opacity <= 0 ? particles.splice(i, 1) : p.update());
+            spawnEnemies();
+
+            // 敵、弾の更新と衝突検知
+            enemies.forEach((enemy, enemyIndex) => {
+                enemy.update();
+
+                // 敵とプレイヤーの衝突
+                const distPlayerEnemy = Math.hypot(player.position.x - enemy.position.x, player.position.y - enemy.position.y);
+                if (distPlayerEnemy < player.width / 2 + enemy.width / 2) {
+                    createExplosion(player.position.x + player.width/2, player.position.y + player.height/2, '#ff4d4d', 40);
+                    cancelAnimationFrame(animationId);
+                    gameOver();
+                }
+                
+                if (enemy.position.y > canvas.height) setTimeout(() => enemies.splice(enemyIndex, 1), 0);
+            });
+
+            projectiles.forEach((projectile, projectileIndex) => {
+                projectile.update();
+                if (projectile.position.y + projectile.height < 0) {
+                    setTimeout(() => projectiles.splice(projectileIndex, 1), 0);
+                }
+
+                // 弾と敵の衝突
+                enemies.forEach((enemy, enemyIndex) => {
+                     // enemyが存在するか確認（他の弾で破壊された直後など）
+                    if (!enemy) return;
+
+                    const distProjEnemy = Math.hypot(projectile.position.x - enemy.position.x, projectile.position.y - enemy.position.y);
+                    if (distProjEnemy < projectile.height / 2 + enemy.width / 2) { // 弾は縦長なのでheightで判定
+                        createExplosion(enemy.position.x + enemy.width / 2, enemy.position.y + enemy.height / 2, '#ffa500');
+                        score += enemy.points;
+                        scoreEl.innerText = score;
+                        
+                        setTimeout(() => {
+                            // 既に破壊されていないか再確認
+                            const stillExists = enemies.includes(enemy);
+                            if (stillExists) enemies.splice(enemyIndex, 1);
+                            projectiles.splice(projectileIndex, 1);
+                        }, 0);
+                    }
+                });
+            });
+
+            frames++;
+        }
+
+        // --- イベントリスナー ---
+        window.addEventListener('keydown', ({ key }) => {
+            if (gameStatus !== 'running') return;
+            const k = key.toLowerCase();
+            if (k === 'w' || k === 'arrowup') keys.w.pressed = true;
+            if (k === 'a' || k === 'arrowleft') keys.a.pressed = true;
+            if (k === 's' || k === 'arrowdown') keys.s.pressed = true;
+            if (k === 'd' || k === 'arrowright') keys.d.pressed = true;
+            if (k === ' ') keys.space.pressed = true;
+        });
+
+        window.addEventListener('keyup', ({ key }) => {
+            if (gameStatus !== 'running') return;
+             const k = key.toLowerCase();
+            if (k === 'w' || k === 'arrowup') keys.w.pressed = false;
+            if (k === 'a' || k === 'arrowleft') keys.a.pressed = false;
+            if (k === 's' || k === 'arrowdown') keys.s.pressed = false;
+            if (k === 'd' || k === 'arrowright') keys.d.pressed = false;
+            if (k === ' ') keys.space.pressed = false;
+        });
+        
+        startBtn.addEventListener('click', () => { init(); animate(0); });
+        restartBtn.addEventListener('click', () => { init(); animate(0); });
+    });
+    </script>
+</body>
+</html>
